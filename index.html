@@ -91,24 +91,20 @@ function installManualOrder(doc, tool, storage){
   try {const saved=JSON.parse(storage.getItem(key));if(Array.isArray(saved))order=saved.filter(x=>typeof x==='string');}catch{}
   const natural=new WeakMap();let sequence=0, drag=null;
   const make=(tag,label)=>{const el=doc.createElement(tag);if(label)el.textContent=label;return el;};
-  const bar=make('div');bar.className='row manual-drag-bar';
-  const reset=make('button','기본 순서로');reset.type='button';
-  const help=make('span','동·호 왼쪽 손잡이를 잡고 원하는 위치로 끌어 놓으세요. 순서는 이 브라우저에 저장됩니다.');help.className='sub';
-  const status=make('span');status.className='sub';status.setAttribute('role','status');
   const style=make('style');style.textContent=`
-  .manual-drag-bar{margin:8px 0;gap:8px;flex-wrap:wrap}.manual-drag-bar button,.manual-drag-bar span{margin:0}.manual-drag-bar [hidden],.manual-drop-line[hidden]{display:none!important}
+  .manual-drop-line[hidden]{display:none!important}
   .hand-table .manual-drag-handle{cursor:grab;touch-action:none;display:inline-grid;place-items:center;width:28px;height:30px;padding:0;margin:0 6px 0 0;vertical-align:middle;border:1px solid transparent;border-radius:5px;background:transparent;color:#53687a;box-shadow:none}
   .hand-table .manual-drag-handle:hover,.hand-table .manual-drag-handle:focus-visible{background:#e8f2ff;color:#1454a0;border-color:#a6c9f6}.manual-drag-handle svg{pointer-events:none}.manual-row-moving{opacity:.48}.manual-row-moving .manual-drag-handle{cursor:grabbing}.manual-drop-line{position:fixed;height:3px;background:#2475df;border-radius:2px;box-shadow:0 0 0 1px #fff;pointer-events:none;z-index:10000}`;
-  doc.head.append(style);bar.append(help,reset,status);panel.before(bar);
+  doc.head.append(style);
   const line=make('div');line.hidden=true;line.className='manual-drop-line';line.setAttribute('aria-hidden','true');doc.body.append(line);
   const rows=()=>Array.from(body.rows).filter(row=>row.cells[0]?.matches('th[scope="row"]'));
   const label=row=>row.cells[0].lastChild.textContent.trim();
   const handles=new WeakMap();
-  function save(message){try{storage.setItem(key,JSON.stringify(order));status.textContent=message;}catch{status.textContent='현재 표에만 적용했습니다. 브라우저 저장소를 사용할 수 없습니다.';}}
+  function save(){try{storage.setItem(key,JSON.stringify(order));}catch{}}
   function commit(row,before){
     if(!body.contains(row)||before===row||before===row.nextElementSibling||(!before&&!row.nextElementSibling))return;
     body.insertBefore(row,before);const current=rows();order=current.map(label);
-    refresh();save(label(row)+' 순서를 '+(current.indexOf(row)+1)+'번째로 옮겼습니다.');
+    refresh();save();
   }
   function preview(){
     if(!drag?.active)return;
@@ -155,9 +151,8 @@ function installManualOrder(doc, tool, storage){
     current.forEach(row=>{if(!natural.has(row))natural.set(row,sequence++);});
     const sorted=[...current].sort((a,b)=>(ranks.get(label(a))??Infinity)-(ranks.get(label(b))??Infinity)||natural.get(a)-natural.get(b));
     if(sorted.some((row,i)=>row!==current[i]))sorted.forEach((row,i)=>{if(body.rows[i]!==row)body.insertBefore(row,body.rows[i]||null);});
-    sorted.forEach(row=>{if(!handles.has(row))addHandle(row);});reset.hidden=!order.length;
+    sorted.forEach(row=>{if(!handles.has(row))addHandle(row);});
   }
-  reset.onclick=()=>{order=[];refresh();rows()[0]&&handles.get(rows()[0]).focus({preventScroll:true});save('표를 기본 순서로 되돌렸습니다.');};
   refresh();new win.MutationObserver(refresh).observe(body,{childList:true});
 }
 
