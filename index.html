@@ -82,6 +82,85 @@ TOOLS.forEach((t, i) => {
   nav.appendChild(b);
 });
 
+function installManualOrder(doc, tool, storage){
+  const body=doc.getElementById('manual');
+  if(!body || body.dataset.orderReady)return;
+  body.dataset.orderReady='1';
+  const panel=body.closest('.hand-panel'), win=doc.defaultView, key='gaepo.'+tool+'.manual.order.v1';
+  let order=[];
+  try {const saved=JSON.parse(storage.getItem(key));if(Array.isArray(saved))order=saved.filter(x=>typeof x==='string');}catch{}
+  const natural=new WeakMap();let sequence=0, drag=null;
+  const make=(tag,label)=>{const el=doc.createElement(tag);if(label)el.textContent=label;return el;};
+  const bar=make('div');bar.className='row manual-drag-bar';
+  const reset=make('button','기본 순서로');reset.type='button';
+  const help=make('span','동·호 왼쪽 손잡이를 잡고 원하는 위치로 끌어 놓으세요. 순서는 이 브라우저에 저장됩니다.');help.className='sub';
+  const status=make('span');status.className='sub';status.setAttribute('role','status');
+  const style=make('style');style.textContent=`
+  .manual-drag-bar{margin:8px 0;gap:8px;flex-wrap:wrap}.manual-drag-bar button,.manual-drag-bar span{margin:0}.manual-drag-bar [hidden],.manual-drop-line[hidden]{display:none!important}
+  .hand-table .manual-drag-handle{cursor:grab;touch-action:none;display:inline-grid;place-items:center;width:28px;height:30px;padding:0;margin:0 6px 0 0;vertical-align:middle;border:1px solid transparent;border-radius:5px;background:transparent;color:#53687a;box-shadow:none}
+  .hand-table .manual-drag-handle:hover,.hand-table .manual-drag-handle:focus-visible{background:#e8f2ff;color:#1454a0;border-color:#a6c9f6}.manual-drag-handle svg{pointer-events:none}.manual-row-moving{opacity:.48}.manual-row-moving .manual-drag-handle{cursor:grabbing}.manual-drop-line{position:fixed;height:3px;background:#2475df;border-radius:2px;box-shadow:0 0 0 1px #fff;pointer-events:none;z-index:10000}`;
+  doc.head.append(style);bar.append(help,reset,status);panel.before(bar);
+  const line=make('div');line.hidden=true;line.className='manual-drop-line';line.setAttribute('aria-hidden','true');doc.body.append(line);
+  const rows=()=>Array.from(body.rows).filter(row=>row.cells[0]?.matches('th[scope="row"]'));
+  const label=row=>row.cells[0].lastChild.textContent.trim();
+  const handles=new WeakMap();
+  function save(message){try{storage.setItem(key,JSON.stringify(order));status.textContent=message;}catch{status.textContent='현재 표에만 적용했습니다. 브라우저 저장소를 사용할 수 없습니다.';}}
+  function commit(row,before){
+    if(!body.contains(row)||before===row||before===row.nextElementSibling||(!before&&!row.nextElementSibling))return;
+    body.insertBefore(row,before);const current=rows();order=current.map(label);
+    refresh();save(label(row)+' 순서를 '+(current.indexOf(row)+1)+'번째로 옮겼습니다.');
+  }
+  function preview(){
+    if(!drag?.active)return;
+    const bounds=panel.getBoundingClientRect(), table=body.getBoundingClientRect();
+    const top=Math.max(0,bounds.top,table.top,panel.querySelector('thead').getBoundingClientRect().bottom),bottom=Math.min(win.innerHeight,bounds.bottom,table.bottom);
+    const left=Math.max(0,bounds.left,table.left),right=Math.min(win.innerWidth,bounds.right,table.right);
+    drag.target=null;line.hidden=true;
+    if(right<=left||bottom<=top||drag.x<left||drag.x>right||drag.y<top-4||drag.y>bottom+4)return;
+    const list=rows().filter(r=>r!==drag.row);
+    const next=list.find(r=>{const rect=r.getBoundingClientRect();return drag.y<(rect.top+rect.bottom)/2;})||null;
+    const y=next?next.getBoundingClientRect().top:list.at(-1)?.getBoundingClientRect().bottom;
+    if(y==null)return;
+    drag.target={before:next};line.hidden=false;
+    line.style.cssText='left:'+left+'px;width:'+(right-left)+'px;top:'+Math.max(top,Math.min(bottom-2,y-1))+'px';
+  }
+  function tick(){
+    if(!drag?.active)return;
+    const r=panel.getBoundingClientRect(), edge=36;
+    if(drag.x>=r.left&&drag.x<=r.right){
+      const scroll=(low,high)=>drag.y<low+edge?-Math.min(18,(low+edge-drag.y)/3):drag.y>high-edge?Math.min(18,(drag.y-high+edge)/3):0;
+      const delta=scroll(Math.max(0,r.top),Math.min(win.innerHeight,r.bottom));
+      if(delta){const prior=panel.scrollTop;panel.scrollTop+=delta;if(panel.scrollTop===prior&&(drag.y<edge||drag.y>win.innerHeight-edge))win.scrollBy(0,delta);}
+    }
+    preview();drag.raf=win.requestAnimationFrame(tick);
+  }
+  function finish(e,drop){
+    if(!drag||e.pointerId!==drag.id)return;
+    if(drop){drag.x=e.clientX;drag.y=e.clientY;preview();}
+    const current=drag;drag=null;win.cancelAnimationFrame(current.raf);line.hidden=true;current.row.classList.remove('manual-row-moving');
+    if(current.handle.hasPointerCapture(current.id))current.handle.releasePointerCapture(current.id);
+    if(drop&&current.target){commit(current.row,current.target.before);current.handle.focus({preventScroll:true});}
+  }
+  function addHandle(row){
+    const name=label(row), handle=make('button');handle.type='button';handle.className='manual-drag-handle';handle.setAttribute('aria-label',name+' 순서 이동');handle.title='끌어서 순서 변경 · 키보드 ↑/↓';
+    handle.innerHTML='<svg width="13" height="18" viewBox="0 0 13 18" aria-hidden="true" fill="currentColor"><circle cx="4" cy="4" r="1.45"/><circle cx="9" cy="4" r="1.45"/><circle cx="4" cy="9" r="1.45"/><circle cx="9" cy="9" r="1.45"/><circle cx="4" cy="14" r="1.45"/><circle cx="9" cy="14" r="1.45"/></svg>';
+    handle.onpointerdown=e=>{if(e.button!==0||drag)return;e.preventDefault();handle.focus({preventScroll:true});handle.setPointerCapture(e.pointerId);drag={handle,row,id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,active:false};};
+    handle.onpointermove=e=>{if(!drag||e.pointerId!==drag.id)return;drag.x=e.clientX;drag.y=e.clientY;if(!drag.active&&Math.hypot(drag.x-drag.startX,drag.y-drag.startY)>4){drag.active=true;row.classList.add('manual-row-moving');tick();}else if(drag.active)preview();};
+    handle.onpointerup=e=>finish(e,true);handle.onpointercancel=handle.onlostpointercapture=e=>finish(e,false);
+    handle.onkeydown=e=>{if(e.key==='Escape'&&drag){finish({pointerId:drag.id},false);return;}if(!['ArrowUp','ArrowDown'].includes(e.key)||drag)return;e.preventDefault();const other=e.key==='ArrowUp'?row.previousElementSibling:row.nextElementSibling;if(other){commit(row,e.key==='ArrowUp'?other:other.nextElementSibling);handle.focus({preventScroll:true});row.scrollIntoView({block:'nearest'});}};
+    row.cells[0].prepend(handle);handles.set(row,handle);
+  }
+  function refresh(){
+    const current=rows(),ranks=new Map(order.map((name,i)=>[name,i]));
+    current.forEach(row=>{if(!natural.has(row))natural.set(row,sequence++);});
+    const sorted=[...current].sort((a,b)=>(ranks.get(label(a))??Infinity)-(ranks.get(label(b))??Infinity)||natural.get(a)-natural.get(b));
+    if(sorted.some((row,i)=>row!==current[i]))sorted.forEach((row,i)=>{if(body.rows[i]!==row)body.insertBefore(row,body.rows[i]||null);});
+    sorted.forEach(row=>{if(!handles.has(row))addHandle(row);});reset.hidden=!order.length;
+  }
+  reset.onclick=()=>{order=[];refresh();rows()[0]&&handles.get(rows()[0]).focus({preventScroll:true});save('표를 기본 순서로 되돌렸습니다.');};
+  refresh();new win.MutationObserver(refresh).observe(body,{childList:true});
+}
+
 function withFonts(html) {
   const m = /<head[^>]*>/i.exec(html);
   return m ? html.slice(0, m.index + m[0].length) + FONT_CSS + html.slice(m.index + m[0].length) : FONT_CSS + html;
@@ -97,7 +176,13 @@ function open(key) {
     loading.classList.add('on');
     const f = document.createElement('iframe');
     f.title = t.name;
-    f.onload = () => loading.classList.remove('on');
+    f.onload = () => {
+      loading.classList.remove('on');
+      if (key === 'meter-electric' || key === 'meter-water') {
+        let store; try { store = window.localStorage; } catch {}
+        installManualOrder(f.contentDocument, key === 'meter-electric' ? 'electric' : 'water', store);
+      }
+    };
     const html = t.group === 'meter' ? SRC[key].replace("\u003c!-- suite:meter-sheetjs -->", () => METER_EXCEL) : SRC[key];
     f.srcdoc = withFonts(html);
     main.appendChild(f);
